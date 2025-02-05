@@ -1,45 +1,39 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
-use Illuminate\Support\Facades\Log;
 use App\Models\Company;
 
 Route::get('/', function () {
+    ini_set('max_execution_time', 600);  // Uncommented
+    // ini_set('memory_limit', '1024M');    // Uncommented
+    
+    $path = storage_path('app/data.csv');
 
-    // ini_set('max_execution time', 600);
-    $startTime = microtime(true); // Start measuring time
-    
-    $smallPath = storage_path('app/small_set.csv');
-    $path = storage_path('app/small_set.csv');
-    
     if (!file_exists($path)) {
-        Log::error("CSV file not found at: {$path}");
         return "File not found!";
     }
 
     $file = fopen($path, 'r');
-    fgetcsv($file); // Skip header
+    fgetcsv($file); // Skip header row - ADDED THIS LINE
+    
+    $data = [];
 
-    $insertedRows = 0;
     while (($row = fgetcsv($file, null, ',')) !== false) {
-        Company::create([
+        // Changed to append to array with []
+        $data[] = [  // Added array bracket
             'name' => $row[0],
             'email' => $row[1],
             'mobile' => $row[2],
-        ]);
-        $insertedRows++;
+        ];
+    }
+
+    if (!empty($data)) {
+        foreach(array_chunk($data, 1000) as $chunk) {
+            Company::insert($chunk);  
+        }
     }
 
     fclose($file);
 
-    echo '<p>Finished database insert</p>';
-
-    $executionTime = round(microtime(true) - $startTime, 2); // Calculate time
-    Log::info("CSV Import Statistics", [
-        'execution_time' => $executionTime . ' seconds',
-        'rows_inserted' => $insertedRows,
-        'file_path' => $path
-    ]);
-
-    return "CSV imported successfully! Time: {$executionTime} seconds, Rows inserted: {$insertedRows}";
+    return "CSV imported successfully! Inserted " . count($data) . " records";
 });

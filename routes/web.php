@@ -1,45 +1,53 @@
 <?php
 
 use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use App\Models\Company;
 
 Route::get('/', function () {
+    $startTime = microtime(true);
+ 
 
-    // ini_set('max_execution time', 600);
-    $startTime = microtime(true); // Start measuring time
-    
-    $smallPath = storage_path('app/small_set.csv');
-    $path = storage_path('app/small_set.csv');
-    
-    if (!file_exists($path)) {
-        Log::error("CSV file not found at: {$path}");
-        return "File not found!";
+    try {
+         // Enable LOCAL INFILE for this connection
+         DB::connection()->getPdo()->setAttribute(PDO::MYSQL_ATTR_LOCAL_INFILE, true);
+         $filePath = storage_path('app/data.csv');
+        $escapedPath = DB::getPdo()->quote($filePath);
+        
+        DB::statement("
+            LOAD DATA LOCAL INFILE {$escapedPath}
+            INTO TABLE companies
+            FIELDS TERMINATED BY ','
+            LINES TERMINATED BY '\\n'
+            IGNORE 1 LINES
+            (name, email, mobile)
+        ");
+
+        // Get affected rows count
+        $insertedCount = DB::select("SELECT ROW_COUNT() as count")[0]->count;
+
+    } catch (\Exception $e) {
+        Log::error('CSV Import Error: ' . $e->getMessage());
+        return response()->json(['error' => $e->getMessage()], 500);
     }
 
-    $file = fopen($path, 'r');
-    fgetcsv($file); // Skip header
+    $executionTime = round(microtime(true) - $startTime, 2);
+    $memoryUsage = round(memory_get_peak_usage(true) / 1024 / 1024, 2);
 
-    $insertedRows = 0;
-    while (($row = fgetcsv($file, null, ',')) !== false) {
-        Company::create([
-            'name' => $row[0],
-            'email' => $row[1],
-            'mobile' => $row[2],
-        ]);
-        $insertedRows++;
-    }
-
-    fclose($file);
-
-    echo '<p>Finished database insert</p>';
-
-    $executionTime = round(microtime(true) - $startTime, 2); // Calculate time
-    Log::info("CSV Import Statistics", [
-        'execution_time' => $executionTime . ' seconds',
-        'rows_inserted' => $insertedRows,
-        'file_path' => $path
+    // Log results
+    Log::info("CSV Import Completed", [
+        'method' => 'LOAD_DATA_INFILE',
+        'execution_time' => $executionTime,
+        'records_inserted' => $insertedCount,
+        'memory_usage' => $memoryUsage
     ]);
 
-    return "CSV imported successfully! Time: {$executionTime} seconds, Rows inserted: {$insertedRows}";
+    return response()->json([
+        'message' => 'CSV imported successfully!',
+        'method' => 'MySQL LOAD DATA INFILE',
+        'records_inserted' => $insertedCount,
+        'execution_time' => "$executionTime seconds",
+        'memory_usage' => "$memoryUsage MB"
+    ]);
 });
+// 2nd way is in Readme(Array CHunking)
